@@ -1,71 +1,78 @@
-import io
+# tts.py
+#
+# pyttsx3's runAndWait() starts an internal event loop that CANNOT be restarted
+# in the same process once it ends → "RuntimeError: run loop already started".
+# The bulletproof fix: run every TTS call in its own SUBPROCESS.
+# Each subprocess is a fresh Python process with no shared engine state.
+
+import subprocess
+import sys
 import threading
-import requests
-import sounddevice as sd
-import soundfile as sf
- 
-#Take the API key from ElevenLabs
 
-ELEVEN_API_KEY = "GO ELEVENLABS"
-VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
+_lock = threading.Lock()          # one utterance at a time
+_stop_event = threading.Event()
+_current_proc: subprocess.Popen | None = None
 
-stop_speaking_flag = threading.Event()
+# Tiny worker script executed inside the child process
+_WORKER = """
+import sys, pyttsx3
+text = sys.stdin.read()
+try:
+    engine = pyttsx3.init()
+    engine.setProperty("rate", 175)
+    engine.setProperty("volume", 1.0)
+    voices = engine.getProperty("voices")
+    if voices:
+        engine.setProperty("voice", voices[0].id)
+    engine.say(text)
+    engine.runAndWait()
+except Exception as e:
+    print(f"TTS error: {e}", file=sys.stderr)
+"""
 
-def edge_speak(text: str, ui=None, blocking=False):
-    if not text.strip():
+
+def speak(text: str, block: bool = True) -> None:
+    """Speak *text*. block=True waits until done; block=False is fire-and-forget."""
+    global _current_proc
+    if not text or not text.strip():
         return
-    
+    _stop_event.clear()
 
-    finished_event = threading.Event()
+    def _run():
+        global _current_proc
+        with _lock:
+            if _stop_event.is_set():
+                return
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-c", _WORKER],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                _current_proc = proc
+                proc.stdin.write(text.encode("utf-8"))
+                proc.stdin.close()
+                proc.wait()
+                _current_proc = None
+            except Exception as e:
+                print(f"TTS subprocess error: {e}")
 
-    def _thread():
-        if ui:
-            ui.start_speaking()
-        stop_speaking_flag.clear()
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    if block:
+        t.join()
 
-        try:
-            url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
-            headers = {
-                "xi-api-key": ELEVEN_API_KEY,
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "text": text.strip(),
-                "voice_settings": {
-                    "stability": 0.55,
-                    "similarity_boost": 0.85
-                }
-            }
 
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+def stop_speaking() -> None:
+    """Kill the running TTS subprocess immediately."""
+    global _current_proc
+    _stop_event.set()
+    proc = _current_proc
+    if proc and proc.poll() is None:
+        proc.kill()
 
-            audio_data = io.BytesIO(response.content)
-            data, samplerate = sf.read(audio_data, dtype="float32")
 
-            channels = data.shape[1] if len(data.shape) > 1 else 1
-            with sd.OutputStream(
-                samplerate=samplerate,
-                channels=channels,
-                dtype="float32"
-            ) as stream:
-                block_size = 1024
-                for start in range(0, len(data), block_size):
-                    if stop_speaking_flag.is_set():
-                        break
-                    stream.write(data[start:start + block_size])
-
-        except Exception as e:
-            print("VOICE ERROR:", e)
-        finally:
-            if ui:
-                ui.stop_speaking()
-            finished_event.set()
-
-    threading.Thread(target=_thread, daemon=True).start()
-
-    if blocking:
-        finished_event.wait()
-
-def stop_speaking():
-    stop_speaking_flag.set()
+# Legacy alias so old callers using edge_speak() still work
+def edge_speak(text: str, ui=None) -> None:
+    speak(text, block=False)
