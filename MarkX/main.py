@@ -1,186 +1,168 @@
-import asyncio
-import threading
+# main.py
 
-from speech_to_text import record_voice, stop_listening_flag
+import threading
+import queue
 from llm import get_llm_output
-from tts import edge_speak, stop_speaking
+from tts import speak, stop_speaking
 from ui import JarvisUI
 
 from actions.open_app import open_app
 from actions.web_search import web_search
 from actions.weather_report import weather_action
-from actions.send_message import send_message  
+from actions.send_message import send_message
 
 from memory.memory_manager import load_memory, update_memory
-from memory.temporary_memory import TemporaryMemory
 
-interrupt_commands = ["mute", "quit", "exit", "stop"]
-
-
-temp_memory = TemporaryMemory()
+# ── Global task queue ─────────────────────────────────────────────────────────
+task_queue = queue.Queue()
 
 
-async def get_voice_input():
-    return await asyncio.to_thread(record_voice)
+class CommandEngine:
+    def __init__(self, ui: JarvisUI):
+        self.ui = ui
+        self.running = True
 
+        # Start the background task worker
+        threading.Thread(target=self._task_worker, daemon=True).start()
 
-async def ai_loop(ui: JarvisUI):
-    while True:
-        stop_listening_flag.clear()
-        user_text = await get_voice_input()
+    # ── Input handler ─────────────────────────────────────────────────────────
+    def handle_input(self, text: str):
+        text = text.strip()
+        if not text:
+            return
 
-        if not user_text:
-            continue
+        self.ui.write_log(f"You: {text}")
+        self.ui.set_thinking(True)
 
+        # Run LLM call in background so the UI stays responsive
+        threading.Thread(
+            target=self._process_input, args=(text,), daemon=True
+        ).start()
 
-        if any(cmd in user_text.lower() for cmd in interrupt_commands):
-            stop_speaking()
-            temp_memory.reset()
-            continue
-
-        ui.write_log(f"You: {user_text}")
-
-
-        if temp_memory.get_current_question():
-            param = temp_memory.get_current_question()
-            temp_memory.update_parameters({param: user_text})
-            temp_memory.clear_current_question()
-            user_text = temp_memory.get_last_user_text()
-        
-        temp_memory.set_last_user_text(user_text)
-
-        long_term_memory = load_memory()
-
-        def minimal_memory_for_prompt(memory: dict) -> dict:
-            result = {}
-            identity = memory.get("identity", {})
-            preferences = memory.get("preferences", {})
-            relationships = memory.get("relationships", {})
-            emotional_state = memory.get("emotional_state", {})
-
-            if "name" in identity:
-                result["user_name"] = identity["name"].get("value")
-
-            for k in ["favorite_color", "favorite_food", "favorite_music"]:
-                if k in preferences:
-                    val = preferences[k].get("value")
-                    if isinstance(val, dict) and "value" in val:
-                        val = val["value"]
-                    result[k] = val
-
-            for rel, info in relationships.items():
-                if isinstance(info, dict) and "name" in info and "value" in info["name"]:
-                    result[f"{rel}_name"] = info["name"]["value"]
-
-            for event, info in emotional_state.items():
-                if "value" in info:
-                    result[f"emotion_{event}"] = info["value"]
-
-            return {k: v for k, v in result.items() if v}
-
-        memory_for_prompt = minimal_memory_for_prompt(long_term_memory)
-        
-        history_lines = temp_memory.get_history_for_prompt()
-        recent_history = "\n".join(history_lines.split("\n")[-5:])
-        if recent_history:
-            memory_for_prompt["recent_conversation"] = recent_history
-
-        if temp_memory.has_pending_intent():
-            memory_for_prompt["_pending_intent"] = temp_memory.pending_intent
-            memory_for_prompt["_collected_params"] = str(temp_memory.get_parameters())
-
+    def _process_input(self, text: str):
         try:
-            llm_output = get_llm_output(
-                user_text=user_text, 
-                memory_block=memory_for_prompt
-            )
+            memory = load_memory()
+            result = get_llm_output(text, memory_block=memory)
         except Exception as e:
-            ui.write_log(f"AI ERROR: {e}")
-            continue
+            self.ui.set_thinking(False)
+            self.ui.write_log(f"[Error] LLM call failed: {e}")
+            return
 
-        intent = llm_output.get("intent", "chat")
-        parameters = llm_output.get("parameters", {})
-        response = llm_output.get("text")
-        memory_update = llm_output.get("memory_update")
+        self.ui.set_thinking(False)
 
+        # Persist any memory updates returned by the LLM
+        memory_update = result.get("memory_update")
         if memory_update and isinstance(memory_update, dict):
-            update_memory(memory_update)
+            try:
+                update_memory(memory_update)
+            except Exception as e:
+                print(f"Memory update failed: {e}")
 
-        temp_memory.set_last_ai_response(response)
+        tasks = result.get("tasks", [])
+        if not tasks:
+            self.ui.write_log("[Mark-X] No tasks generated.")
+            return
+
+        for task in tasks:
+            task_queue.put(task)
+
+    # ── Task worker ───────────────────────────────────────────────────────────
+    def _task_worker(self):
+        while self.running:
+            try:
+                task = task_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            try:
+                self._execute_task(task)
+            except Exception as e:
+                self.ui.write_log(f"[Error] Task execution failed: {e}")
+                print(f"Task error: {e}")
+            finally:
+                task_queue.task_done()
+
+    def _execute_task(self, task: dict):
+        intent = task.get("intent", "chat")
+        parameters = task.get("parameters", {})
+        response_text = task.get("text", "")
+
+        intent_aliases = {
+            "weather": "weather_report",
+            "search_web": "search",
+            "open_application": "open_app",
+        }
+        intent = intent_aliases.get(intent, intent)
 
         if intent == "send_message":
-            temp_memory.set_pending_intent("send_message")
-            temp_memory.update_parameters(parameters)
+            parameters = dict(parameters)
+            if "contact" not in parameters and "receiver" in parameters:
+                parameters["contact"] = parameters["receiver"]
+            if "message" not in parameters and "message_text" in parameters:
+                parameters["message"] = parameters["message_text"]
 
-            all_params_ready = all(temp_memory.get_parameter(p) for p in ["receiver", "message_text", "platform"])
-            if all_params_ready:
-                threading.Thread(
-                    target=send_message,
-                    kwargs={
-                        "parameters": temp_memory.get_parameters(),
-                        "player": ui,
-                        "session_memory": temp_memory
-                    },
-                    daemon=True
-                ).start()
-
-        elif intent == "open_app":
-            app_name = parameters.get("app_name")
-            if app_name:
-                threading.Thread(
-                    target=open_app,
-                    kwargs={
-                        "parameters": parameters,
-                        "response": response,
-                        "player": ui,
-                        "session_memory": temp_memory
-                    },
-                    daemon=True
-                ).start()
-
-        elif intent == "weather_report":
-            city = parameters.get("city")
-            time = parameters.get("time")
-            if city:
-                threading.Thread(
-                    target=weather_action,
-                    kwargs={
-                        "parameters": parameters,
-                        "player": ui,
-                        "session_memory": temp_memory
-                    },
-                    daemon=True
-                ).start()
+        if intent == "open_app":
+            open_app(
+                parameters=parameters,
+                response=response_text,
+                player=self.ui,
+                session_memory=None,
+            )
 
         elif intent == "search":
-            query = parameters.get("query")
-            if query:
-                threading.Thread(
-                    target=web_search,
-                    kwargs={
-                        "parameters": parameters,
-                        "player": ui,
-                        "session_memory": temp_memory,
-                        "api_key": "API_KEY"
-                    },
-                    daemon=True
-                ).start()
+            web_search(
+                parameters=parameters,
+                player=self.ui,
+                session_memory=None,
+            )
 
-        else:
-            if response:
-                ui.write_log(f"AI: {response}")
-                edge_speak(response, ui)
+        elif intent == "weather_report":
+            weather_action(
+                parameters=parameters,
+                player=self.ui,
+                session_memory=None,
+            )
 
-        await asyncio.sleep(0.01)
+        elif intent == "send_message":
+            send_message(
+                parameters=parameters,
+                player=self.ui,
+                session_memory=None,
+            )
 
+        else:  # "chat" or anything unrecognised
+            if response_text:
+                self.ui.write_log(f"Mark-X: {response_text}")
+                self.ui.start_speaking()
+                speak(response_text)
+                self.ui.stop_speaking()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    ui = JarvisUI("face.png", size=(900, 900))
+    ui = JarvisUI(r"MarkX\face.png", size=(900, 900))
+    engine = CommandEngine(ui)
 
-    def runner():
-        asyncio.run(ai_loop(ui))
+    # Text input callback
+    ui.set_user_input_callback(lambda text: engine.handle_input(text))
 
-    threading.Thread(target=runner, daemon=True).start()
+    # Voice input thread — only active when mode == "voice"
+    def voice_loop():
+        from speech_to_text import record_voice
+        while True:
+            if ui.get_mode() == "voice":
+                ui.write_log("🎙  Listening...")
+                text = record_voice()
+                if text and text.strip():
+                    engine.handle_input(text)
+            else:
+                # Sleep briefly so we're not hammering the CPU while in text mode
+                import time
+                time.sleep(0.3)
+
+    threading.Thread(target=voice_loop, daemon=True).start()
+
     ui.root.mainloop()
 
 
