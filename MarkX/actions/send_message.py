@@ -1,96 +1,67 @@
+# actions/send_message.py
+#
+# Sends a WhatsApp message by opening WhatsApp Web in the browser.
+# No third-party packages needed beyond the Python standard library.
+# Works by constructing a wa.me deep-link URL with the pre-filled message.
+
+import webbrowser
+import urllib.parse
 import time
-import pyautogui
-from tts import edge_speak
 
-REQUIRED_PARAMS = ["receiver", "message_text", "platform"]
 
-def send_message(parameters: dict, response: str | None = None, player=None, session_memory=None) -> bool:
-    """
-    Send a message via Windows app (WhatsApp, Telegram, etc.)
+def send_message(parameters: dict, player=None, session_memory: dict = None) -> None:
+    contact: str = parameters.get("contact", "").strip()
+    message: str = parameters.get("message", "").strip()
 
-    Multi-step support: asks for missing parameters using temporary memory.
+    # ── Resolve phone number ──────────────────────────────────────────────────
+    phone_number: str | None = None
 
-    Expected parameters:
-        - receiver (str)
-        - message_text (str)
-        - platform (str, default: "WhatsApp")
-    """
+    # 1. Contact string is already a number (e.g. "+905551234567")
+    cleaned = contact.replace(" ", "").replace("-", "")
+    if cleaned.startswith("+") or cleaned.lstrip("+").isdigit():
+        phone_number = cleaned
 
-    if session_memory is None:
-        msg = "Session memory missing, cannot proceed."
+    # 2. Look up in session memory contacts dict
+    if not phone_number and isinstance(session_memory, dict):
+        contacts: dict = session_memory.get("contacts", {})
+        phone_number = contacts.get(contact.lower()) or contacts.get(contact)
+
+    # 3. Not found — ask the user
+    if not phone_number:
+        msg = (
+            f"Sir, I don't have a phone number stored for '{contact}'. "
+            "Please provide their number including country code, "
+            "for example +1 555 123 4567."
+        )
         if player:
-            player.write_log(msg)
-        edge_speak(msg, player)
-        return False
+            player.write_log(f"Mark-X: {msg}")
+        print(f"send_message: no number for '{contact}'")
+        return
 
-    if parameters:
-        session_memory.update_parameters(parameters)
-
-    for param in REQUIRED_PARAMS:
-        value = session_memory.get_parameter(param)
-        if not value:
-        
-            session_memory.set_current_question(param)
-            question_text = ""
-            if param == "receiver":
-                question_text = "Sir, who should I send the message to?"
-            elif param == "message_text":
-                question_text = "Sir, what should I say?"
-            elif param == "platform":
-                question_text = "Sir, which platform should I use? (WhatsApp, Telegram, etc.)"
-            else:
-                question_text = f"Sir, please provide {param}."
-
-            if player:
-                player.write_log("AI :", question_text)
-            edge_speak(question_text, player)
-            return False  
-
-    receiver = session_memory.get_parameter("receiver").strip()
-    platform = session_memory.get_parameter("platform").strip() or "WhatsApp"
-    message_text = session_memory.get_parameter("message_text").strip()
-
-    if response:
+    if not message:
+        msg = "Sir, what message would you like me to send?"
         if player:
-            player.write_log(response)
-        edge_speak(response, player)
+            player.write_log(f"Mark-X: {msg}")
+        return
+
+    # ── Build WhatsApp Web URL ─────────────────────────────────────────────────
+    # Strip leading + for the URL (wa.me uses plain digits)
+    number = phone_number.lstrip("+").replace(" ", "").replace("-", "")
+    encoded_msg = urllib.parse.quote(message)
+    url = f"https://wa.me/{number}?text={encoded_msg}"
 
     try:
-        pyautogui.PAUSE = 0.1
-
-        pyautogui.press("win")
-        time.sleep(0.3)
-        pyautogui.write(platform, interval=0.03)
-        pyautogui.press("enter")
-        time.sleep(0.6)
-
-        pyautogui.hotkey("ctrl", "f")
-        time.sleep(0.2)
-        pyautogui.write(receiver, interval=0.03)
-        time.sleep(0.2)
-        pyautogui.press("enter")
-        time.sleep(0.2)
-
-        pyautogui.write(message_text, interval=0.03)
-        pyautogui.press("enter")
-
-        session_memory.clear_current_question()
-        session_memory.clear_pending_intent()
-        session_memory.update_parameters({})  
-
-        # -----------------------------
-        # Log success
-        # -----------------------------
-        success_msg = f"Sir, message sent to {receiver} via {platform}."
+        reply = f"Sir, opening WhatsApp Web to send '{message}' to {contact}."
         if player:
-            player.write_log(success_msg)
-        edge_speak(success_msg, player)
+            player.write_log(f"Mark-X: {reply}")
 
-        return True
+        webbrowser.open(url)
+
+        # Brief pause so the browser has time to open
+        time.sleep(1)
 
     except Exception as e:
-        msg = f"Sir, I failed to send the message. ({e})"
+        err = f"Sir, I couldn't open WhatsApp Web: {e}"
         if player:
-            player.write_log(msg)
-        edge_speak(msg, player)
-        return False
+            player.write_log(f"Mark-X: {err}")
+        print(f"send_message error: {e}")
