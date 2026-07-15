@@ -1,10 +1,17 @@
+import os
 import re
+import webbrowser
+from urllib.parse import quote_plus
+
+from dotenv import load_dotenv
 from serpapi import GoogleSearch
 from tts import edge_speak
 
 
 MAX_SNIPPETS = 3
 MIN_SENTENCE_LENGTH = 30
+
+load_dotenv()
 
 
 def clean(text: str) -> str:
@@ -95,8 +102,79 @@ def select_best_sentence(snippets):
     return final_text if final_text else None
 
 
-def serpapi_answer(query: str, api_key: str) -> str:
-    """Perform search and return a single coherent sentence."""
+def _is_local_search(query: str) -> bool:
+    query_lower = query.lower()
+    local_words = [
+        "near me",
+        "nearby",
+        "around me",
+        "closest",
+        "restaurant",
+        "coffee",
+        "shop",
+        "hospital",
+        "pharmacy",
+        "hotel",
+        "atm",
+        "gas station",
+    ]
+    return any(word in query_lower for word in local_words)
+
+
+def _open_browser_search(query: str) -> str:
+    encoded_query = quote_plus(query)
+    if _is_local_search(query):
+        url = f"https://www.google.com/maps/search/{encoded_query}"
+        webbrowser.open(url)
+        return f"Sir, I opened nearby results for {query} in Google Maps."
+
+    url = f"https://www.google.com/search?q={encoded_query}"
+    webbrowser.open(url)
+    return f"Sir, I opened web results for {query}."
+
+
+def _answer_from_answer_box(data: dict) -> str | None:
+    answer_box = data.get("answer_box") or {}
+    for key in ("answer", "snippet", "definition"):
+        value = answer_box.get(key)
+        if value:
+            return clean(str(value))
+    return None
+
+
+def _answer_from_local_results(data: dict) -> str | None:
+    local_results = data.get("local_results") or {}
+    places = local_results.get("places") or []
+    if not places:
+        return None
+
+    names = []
+    for place in places[:3]:
+        title = place.get("title")
+        rating = place.get("rating")
+        address = place.get("address")
+        if not title:
+            continue
+
+        detail = title
+        if rating:
+            detail += f" ({rating} stars)"
+        if address:
+            detail += f", {address}"
+        names.append(detail)
+
+    if not names:
+        return None
+
+    return "Nearby options I found: " + "; ".join(names)
+
+
+def serpapi_answer(query: str, api_key: str | None = None) -> str:
+    """Perform search and return a short useful answer."""
+    api_key = api_key or os.getenv("SERPAPI_API_KEY") or os.getenv("SERP_API_KEY")
+    if not api_key:
+        return _open_browser_search(query)
+
     params = {
         "q": query,
         "engine": "google",
@@ -108,12 +186,24 @@ def serpapi_answer(query: str, api_key: str) -> str:
 
     try:
         data = GoogleSearch(params).get_dict()
-    except Exception:
-        return "Sir, the web search failed."
+    except Exception as e:
+        return f"Sir, the web search failed: {e}"
+
+    search_error = data.get("error")
+    if search_error:
+        return f"Sir, the search API returned an error: {search_error}"
+
+    answer_box = _answer_from_answer_box(data)
+    if answer_box:
+        return answer_box
+
+    local_answer = _answer_from_local_results(data)
+    if local_answer:
+        return local_answer
 
     organic = data.get("organic_results", [])
     if not organic:
-        return "Sir, I couldn't find relevant information."
+        return _open_browser_search(query)
 
     snippets = [
         r.get("snippet", "")
