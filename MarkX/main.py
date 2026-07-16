@@ -12,6 +12,7 @@ from actions.weather_report import weather_action
 from actions.send_message import send_message
 
 from memory.memory_manager import load_memory, update_memory
+from memory.temporary_memory import TemporaryMemory
 
 # ── Global task queue ─────────────────────────────────────────────────────────
 task_queue = queue.Queue()
@@ -21,6 +22,7 @@ class CommandEngine:
     def __init__(self, ui: JarvisUI):
         self.ui = ui
         self.running = True
+        self.session_memory = TemporaryMemory()
 
         # Start the background task worker
         threading.Thread(target=self._task_worker, daemon=True).start()
@@ -31,6 +33,7 @@ class CommandEngine:
         if not text:
             return
 
+        self.session_memory.set_last_user_text(text)
         self.ui.write_log(f"You: {text}")
         self.ui.set_thinking(True)
 
@@ -42,7 +45,11 @@ class CommandEngine:
     def _process_input(self, text: str):
         try:
             memory = load_memory()
-            result = get_llm_output(text, memory_block=memory)
+            result = get_llm_output(
+                text,
+                memory_block=memory,
+                conversation_history=self.session_memory.get_history_for_prompt()
+            )
         except Exception as e:
             self.ui.set_thinking(False)
             self.ui.write_log(f"[Error] LLM call failed: {e}")
@@ -106,32 +113,33 @@ class CommandEngine:
                 parameters=parameters,
                 response=response_text,
                 player=self.ui,
-                session_memory=None,
+                session_memory=self.session_memory,
             )
 
         elif intent == "search":
             web_search(
                 parameters=parameters,
                 player=self.ui,
-                session_memory=None,
+                session_memory=self.session_memory,
             )
 
         elif intent == "weather_report":
             weather_action(
                 parameters=parameters,
                 player=self.ui,
-                session_memory=None,
+                session_memory=self.session_memory,
             )
 
         elif intent == "send_message":
             send_message(
                 parameters=parameters,
                 player=self.ui,
-                session_memory=None,
+                session_memory=self.session_memory,
             )
 
         else:  # "chat" or anything unrecognised
             if response_text:
+                self.session_memory.set_last_ai_response(response_text)
                 self.ui.write_log(f"Mark-X: {response_text}")
                 self.ui.start_speaking()
                 speak(response_text)

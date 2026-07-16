@@ -4,7 +4,8 @@ import os
 from threading import Lock
 from datetime import datetime
 
-MEMORY_PATH = "memory/memory.json"
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MEMORY_PATH = os.path.join(_ROOT_DIR, "memory", "memory.json")
 _lock = Lock()
 
 

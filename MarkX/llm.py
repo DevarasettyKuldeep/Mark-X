@@ -11,7 +11,13 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "openai/gpt-4o-mini"
 
-PROMPT_PATH = "core/prompt.txt"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATE_PROMPT_PATHS = [
+    os.path.join(_BASE_DIR, "core", "prompt.txt"),
+    os.path.join(os.path.dirname(_BASE_DIR), "core", "prompt.txt"),
+    "core/prompt.txt",
+]
+PROMPT_PATH = next((p for p in _CANDIDATE_PROMPT_PATHS if os.path.exists(p)), "core/prompt.txt")
 
 # ── Fallback system prompt ────────────────────────────────────────────────────
 DEFAULT_SYSTEM_PROMPT = """You are Mark-X, an advanced AI assistant.
@@ -107,7 +113,7 @@ def _error_response(message: str) -> dict:
 
 # ── Main LLM call ─────────────────────────────────────────────────────────────
 
-def get_llm_output(user_text: str, memory_block: dict = None) -> dict:
+def get_llm_output(user_text: str, memory_block: dict = None, conversation_history: str = None) -> dict:
     """
     Returns:
         {
@@ -130,7 +136,7 @@ def get_llm_output(user_text: str, memory_block: dict = None) -> dict:
 
     user_prompt = (
         f'User message: "{user_text}"\n\n'
-        f"Known user memory:\n{memory_str}"
+        f"Known user memory:\n{memory_str}" + (f"\n\nRecent conversation context:\n{conversation_history}" if conversation_history else "")
     )
 
     payload = {
