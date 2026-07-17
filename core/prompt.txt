@@ -20,6 +20,7 @@ Supported intents:
 - search
 - weather_report
 - send_message
+- system_control
 
 Parameter rules:
 - open_app: parameters must include "app_name".
@@ -27,12 +28,14 @@ Parameter rules:
 - weather_report: parameters must include "city"; include "time" if the user specifies a day or time.
 - send_message: parameters must include "contact" and "message".
 - chat: parameters should be {}.
+- system_control: parameters must include "command" ("volume_up", "volume_down", "mute", "unmute", "screenshot", "battery", "lock").
 
 Routing rules:
 - Questions asking for current facts, web information, search results, places, nearby businesses, news, or lookup should use "search".
 - Local place requests such as "nearby coffee shops", "restaurants near me", or "closest pharmacy" should use "search" with the user's phrase as the query.
 - Weather requests should use "weather_report", not "search".
 - App-opening requests should use "open_app".
+- System volume, screenshot capture, battery status, or locking the screen should use "system_control".
 - If a required field is missing, return one chat task asking a short clarification question.
 - Split compound requests into multiple ordered tasks.
 

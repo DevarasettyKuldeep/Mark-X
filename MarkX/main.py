@@ -10,6 +10,7 @@ from actions.open_app import open_app
 from actions.web_search import web_search
 from actions.weather_report import weather_action
 from actions.send_message import send_message
+from actions.system_control import system_control_action
 
 from memory.memory_manager import load_memory, update_memory
 from memory.temporary_memory import TemporaryMemory
@@ -118,6 +119,13 @@ class CommandEngine:
 
         elif intent == "search":
             web_search(
+                parameters=parameters,
+                player=self.ui,
+                session_memory=self.session_memory,
+            )
+
+        elif intent == "system_control":
+            system_control_action(
                 parameters=parameters,
                 player=self.ui,
                 session_memory=self.session_memory,
