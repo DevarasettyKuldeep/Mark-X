@@ -21,6 +21,7 @@ Supported intents:
 - weather_report
 - send_message
 - system_control
+- play_media
 
 Parameter rules:
 - open_app: parameters must include "app_name".
@@ -29,6 +30,7 @@ Parameter rules:
 - send_message: parameters must include "contact" and "message".
 - chat: parameters should be {}.
 - system_control: parameters must include "command" ("volume_up", "volume_down", "mute", "unmute", "screenshot", "battery", "lock").
+- play_media: parameters must include "query" (song, video title, or artist) or "control" ("play_pause", "next", "previous", "stop").
 
 Routing rules:
 - Questions asking for current facts, web information, search results, places, nearby businesses, news, or lookup should use "search".
@@ -36,6 +38,7 @@ Routing rules:
 - Weather requests should use "weather_report", not "search".
 - App-opening requests should use "open_app".
 - System volume, screenshot capture, battery status, or locking the screen should use "system_control".
+- Requests to play music, songs, YouTube videos, or control media playback should use "play_media".
 - If a required field is missing, return one chat task asking a short clarification question.
 - Split compound requests into multiple ordered tasks.
 
