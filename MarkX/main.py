@@ -12,6 +12,7 @@ from actions.weather_report import weather_action
 from actions.send_message import send_message
 from actions.system_control import system_control_action
 from actions.media_player import media_action
+from actions.wiki_lookup import wiki_action
 
 from memory.memory_manager import load_memory, update_memory
 from memory.temporary_memory import TemporaryMemory
@@ -103,6 +104,8 @@ class CommandEngine:
             "play_music": "play_media",
             "media": "play_media",
             "media_control": "play_media",
+            "wiki": "wiki_lookup",
+            "wikipedia": "wiki_lookup",
         }
         intent = intent_aliases.get(intent, intent)
 
@@ -137,6 +140,13 @@ class CommandEngine:
 
         elif intent == "play_media":
             media_action(
+                parameters=parameters,
+                player=self.ui,
+                session_memory=self.session_memory,
+            )
+
+        elif intent == "wiki_lookup":
+            wiki_action(
                 parameters=parameters,
                 player=self.ui,
                 session_memory=self.session_memory,

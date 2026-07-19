@@ -22,6 +22,7 @@ Supported intents:
 - send_message
 - system_control
 - play_media
+- wiki_lookup
 
 Parameter rules:
 - open_app: parameters must include "app_name".
@@ -31,6 +32,7 @@ Parameter rules:
 - chat: parameters should be {}.
 - system_control: parameters must include "command" ("volume_up", "volume_down", "mute", "unmute", "screenshot", "battery", "lock").
 - play_media: parameters must include "query" (song, video title, or artist) or "control" ("play_pause", "next", "previous", "stop").
+- wiki_lookup: parameters must include "query" (person, concept, scientific principle, or historic event).
 
 Routing rules:
 - Questions asking for current facts, web information, search results, places, nearby businesses, news, or lookup should use "search".
@@ -39,6 +41,7 @@ Routing rules:
 - App-opening requests should use "open_app".
 - System volume, screenshot capture, battery status, or locking the screen should use "system_control".
 - Requests to play music, songs, YouTube videos, or control media playback should use "play_media".
+- Factual definitions, biographical inquiries ("who was..."), and conceptual encyclopedic questions should use "wiki_lookup".
 - If a required field is missing, return one chat task asking a short clarification question.
 - Split compound requests into multiple ordered tasks.
 
