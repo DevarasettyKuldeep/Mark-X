@@ -102,6 +102,22 @@ class JarvisUI:
         )
         self.mode_btn.pack(side=tk.LEFT, padx=(0, 8))
 
+        # Stop speech button
+        self.stop_btn = tk.Button(
+            controls,
+            text="⏹ Stop",
+            font=("Consolas", 10),
+            bg="#2c0000",
+            fg="#ff5555",
+            activebackground="#550000",
+            activeforeground="#ffffff",
+            relief="flat",
+            cursor="hand2",
+            width=7,
+            command=self._on_stop,
+        )
+        self.stop_btn.pack(side=tk.LEFT, padx=(0, 8))
+
         # Text input field
         self.input_var = tk.StringVar()
         self.input_box = tk.Entry(
@@ -145,6 +161,28 @@ class JarvisUI:
         self._animate()
         self.root.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))
 
+        # Hotkeys: Esc = Stop speech, Ctrl+L = Clear chat, Ctrl+M = Mode toggle
+        self.root.bind("<Escape>", lambda _: self._on_stop())
+        self.root.bind("<Control-l>", lambda _: self.clear_log())
+        self.root.bind("<Control-L>", lambda _: self.clear_log())
+        self.root.bind("<Control-m>", lambda _: self._toggle_mode())
+        self.root.bind("<Control-M>", lambda _: self._toggle_mode())
+        self.input_box.focus_set()
+
+    def _on_stop(self):
+        from tts import stop_speaking
+        stop_speaking()
+        self.stop_speaking()
+        self.write_log("[Mark-X] Speech stopped.")
+
+    def clear_log(self):
+        with self._typing_lock:
+            self.typing_queue.clear()
+            self.is_typing = False
+        self.text_box.configure(state="normal")
+        self.text_box.delete("1.0", tk.END)
+        self.text_box.configure(state="disabled")
+
     # ── Mode toggle ───────────────────────────────────────────────────────────
 
     def _toggle_mode(self):
@@ -167,8 +205,8 @@ class JarvisUI:
 
     def set_thinking(self, active: bool):
         self.thinking = active
-        if not active:
-            self.root.after(0, lambda: self.status_var.set(""))
+        # status managed automatically in _animate() loop
+        pass
 
     # ── Input handler ─────────────────────────────────────────────────────────
 
@@ -238,9 +276,19 @@ class JarvisUI:
         now = time.time()
 
         # Update thinking status text
-        if self.thinking:
+        if self.speaking:
+            self.status_var.set("  ● SPEAKING")
+            self.status_label.config(fg="#00ffff")
+        elif self.thinking:
             dots = "." * (int(now * 2) % 4)
-            self.status_var.set(f"  Thinking{dots}")
+            self.status_var.set(f"  ▲ THINKING{dots}")
+            self.status_label.config(fg="#00aaff")
+        elif self._mode == "voice":
+            self.status_var.set("  🎙 LISTENING...")
+            self.status_label.config(fg="#ffaa00")
+        else:
+            self.status_var.set("  ■ ONLINE | IDLE")
+            self.status_label.config(fg="#004466")
 
         # Determine target scale / glow based on state
         interval = 0.18 if self.speaking else 0.6
