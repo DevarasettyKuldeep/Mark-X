@@ -88,7 +88,11 @@ def check_configuration_and_assets() -> bool:
     prompt_exists = os.path.exists(prompt_path)
     print_status("System Prompt Rules", prompt_exists, f"({'Found' if prompt_exists else 'Missing core/prompt.txt'})")
 
-    return env_exists and face_exists and prompt_exists
+    minimal_ui_path = os.path.join(base_dir, "MarkX", "minimal_ui.py")
+    minimal_ui_exists = os.path.exists(minimal_ui_path)
+    print_status("Minimal Workspace UI", minimal_ui_exists, f"({'Found' if minimal_ui_exists else 'Missing MarkX/minimal_ui.py'})")
+
+    return env_exists and face_exists and prompt_exists and minimal_ui_exists
 
 
 def main():

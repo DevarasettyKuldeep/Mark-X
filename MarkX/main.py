@@ -1,10 +1,14 @@
 # main.py
 
+import os
+import sys
+import time
 import threading
 import queue
 from llm import get_llm_output
 from tts import speak, stop_speaking
 from ui import JarvisUI
+from minimal_ui import MinimalUI
 
 from actions.open_app import open_app
 from actions.web_search import web_search
@@ -22,13 +26,17 @@ task_queue = queue.Queue()
 
 
 class CommandEngine:
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui):
         self.ui = ui
         self.running = True
         self.session_memory = TemporaryMemory()
 
         # Start the background task worker
         threading.Thread(target=self._task_worker, daemon=True).start()
+
+    def set_ui(self, ui):
+        """Update active UI target when switching interface modes."""
+        self.ui = ui
 
     # ── Input handler ─────────────────────────────────────────────────────────
     def handle_input(self, text: str):
@@ -178,29 +186,76 @@ class CommandEngine:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    ui = JarvisUI(r"MarkX\face.png", size=(900, 900))
-    engine = CommandEngine(ui)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate_faces = [
+        os.path.join(base_dir, "face.png"),
+        os.path.join(base_dir, "MarkX", "face.png"),
+        r"MarkX\face.png",
+    ]
+    face_path = next((p for p in candidate_faces if os.path.exists(p)), r"MarkX\face.png")
 
-    # Text input callback
-    ui.set_user_input_callback(lambda text: engine.handle_input(text))
+    # CLI flag detection: --minimal / -m or --hud / --full
+    default_env_ui = os.getenv("DEFAULT_UI", "full").lower().strip()
+    start_minimal = (
+        "--minimal" in sys.argv
+        or "-m" in sys.argv
+        or (default_env_ui in ("minimal", "workspace") and "--full" not in sys.argv and "--hud" not in sys.argv)
+    )
 
-    # Voice input thread — only active when mode == "voice"
-    def voice_loop():
-        from speech_to_text import record_voice
-        while True:
-            if ui.get_mode() == "voice":
-                ui.write_log("🎙  Listening...")
-                text = record_voice()
-                if text and text.strip():
-                    engine.handle_input(text)
-            else:
-                # Sleep briefly so we're not hammering the CPU while in text mode
-                import time
-                time.sleep(0.3)
+    app_state = {
+        "active_ui": None,
+        "engine": None,
+        "voice_thread_started": False,
+        "mode": "minimal" if start_minimal else "full",
+    }
 
-    threading.Thread(target=voice_loop, daemon=True).start()
+    def launch_ui(target_mode: str):
+        old_ui = app_state["active_ui"]
+        if old_ui and hasattr(old_ui, "root"):
+            try:
+                old_ui.root.destroy()
+            except Exception:
+                pass
 
-    ui.root.mainloop()
+        app_state["mode"] = target_mode
+        if target_mode == "minimal":
+            ui = MinimalUI(face_path)
+            ui.set_switch_ui_callback(lambda: launch_ui("full"))
+        else:
+            ui = JarvisUI(face_path)
+            ui.set_switch_ui_callback(lambda: launch_ui("minimal"))
+
+        app_state["active_ui"] = ui
+
+        if app_state["engine"] is None:
+            app_state["engine"] = CommandEngine(ui)
+        else:
+            app_state["engine"].set_ui(ui)
+
+        engine = app_state["engine"]
+        ui.set_user_input_callback(lambda text: engine.handle_input(text))
+
+        # Start persistent voice listening worker
+        if not app_state["voice_thread_started"]:
+            app_state["voice_thread_started"] = True
+
+            def voice_loop():
+                from speech_to_text import record_voice
+                while True:
+                    curr_ui = app_state.get("active_ui")
+                    if curr_ui and hasattr(curr_ui, "get_mode") and curr_ui.get_mode() == "voice":
+                        curr_ui.write_log("🎙 Listening...")
+                        text = record_voice()
+                        if text and text.strip():
+                            engine.handle_input(text)
+                    else:
+                        time.sleep(0.3)
+
+            threading.Thread(target=voice_loop, daemon=True).start()
+
+        ui.root.mainloop()
+
+    launch_ui("minimal" if start_minimal else "full")
 
 
 if __name__ == "__main__":

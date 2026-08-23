@@ -1,14 +1,20 @@
 # Mark-X
 
-Mark-X is a Python desktop AI assistant for Windows. It combines a Tkinter interface, voice input, neural text-to-speech, LLM-based task planning, multi-turn session memory, system controls, and extensible action modules for desktop automation.
+Mark-X is a Python desktop AI assistant for Windows. It features a dual-interface architecture: a full cybernetic HUD interface and a distraction-free, floating minimal workspace command bar, combined with voice input, neural text-to-speech, LLM-based task planning, multi-turn session memory, desktop system controls, and automation modules.
 
 ## Features
 
-- **Cyber-HUD Desktop UI**: Animated glowing HUD avatar with real-time status badges (`ONLINE | IDLE`, `LISTENING`, `THINKING`, `SPEAKING`).
+- **Dual-Interface Architecture**:
+  - **Cyber-HUD Interface (`JarvisUI`)**: Deep obsidian theme with 60 FPS glowing avatar animations, status badges (`ONLINE | IDLE`, `LISTENING`, `THINKING`, `SPEAKING`), typewriter log, and complete command controls.
+  - **Minimal Workspace Command Bar (`MinimalUI`)**: Ultra-compact, floating draggable bar with a small circular logo, medium prompt input, and transient toast notifications—ideal for multitasking without window clutter.
+- **Instant Mode Switching**:
+  - Switch anytime via button (`🗗 Minimal` / `⛶ Full HUD`) or hotkey (**`Ctrl + W`**).
+  - Launch directly into minimal mode with `python MarkX/main.py --minimal` or `-m`.
 - **Interactive Hotkeys**:
   - `Esc`: Instantly interrupt and stop assistant speech.
-  - `Ctrl+L`: Clear conversation log.
-  - `Ctrl+M`: Quick toggle between Voice mode and Text mode.
+  - `Ctrl + L`: Clear conversation log (in Full HUD mode).
+  - `Ctrl + M`: Toggle between Voice input and Text input mode.
+  - `Ctrl + W`: Toggle between Cyber-HUD and Minimal Workspace mode.
 - **Dual Text & Voice Input**: Real-time microphone capture with voice activity detection (faster-whisper) and direct text input.
 - **Neural Text-to-Speech**: High-fidelity Microsoft Edge Neural TTS with automatic offline `pyttsx3` subprocess fallback.
 - **Conversational Session Memory**: Multi-turn context awareness enabling pronouns and natural follow-up queries.
@@ -18,7 +24,7 @@ Mark-X is a Python desktop AI assistant for Windows. It combines a Tkinter inter
 - **Web & Nearby Search**: SerpAPI integration with graceful Google Search and Google Maps browser fallback.
 - **App Launcher**: Instant opening of Windows desktop applications.
 - **Pre-flight Diagnostics**: Built-in environment and hardware readiness tool (`check_system.py`).
-- **Automated Test Suite**: Unit tests covering parsing, memory managers, and action dispatchers.
+- **Automated Test Suite**: Unit tests covering parsing, memory managers, UI interfaces, and action dispatchers.
 
 ## Tech Stack
 
@@ -49,11 +55,12 @@ Mark-X/
     memory/
       memory_manager.py   Long-term persistent user memory
       temporary_memory.py Multi-turn session context and history
-    main.py               App entry point and execution engine
+    main.py               App entry point and execution engine (dual UI switcher)
     llm.py                LLM request handling and JSON task parsing
     speech_to_text.py     Voice activity detection and Whisper transcription
     tts.py                Neural Edge-TTS with pyttsx3 fallback
-    ui.py                 Tkinter desktop interface and HUD
+    ui.py                 Primary Cyber-HUD desktop interface
+    minimal_ui.py         Floating Minimal Workspace command bar
     face.png              Mark-X visual identity asset
   core/
     prompt.txt            Root prompt configuration
@@ -61,6 +68,7 @@ Mark-X/
     test_actions.py       Action handler unit tests
     test_llm_parser.py    JSON extractor and parser tests
     test_memory.py        Session and long-term memory tests
+    test_ui.py            JarvisUI and MinimalUI integration tests
   check_system.py         System diagnostic verification tool
   .env.example            Environment configuration template
   requirements.txt        Python dependencies
@@ -100,9 +108,10 @@ Configure your API key in `.env`:
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
-*(Optional) Configure TTS voice and SerpAPI in `.env`:*
+*(Optional) Configure TTS voice, SerpAPI, or default UI in `.env`:*
 
 ```env
+DEFAULT_UI=full               # or 'minimal'
 TTS_ENGINE=edge
 TTS_VOICE=en-US-ChristopherNeural
 SERPAPI_API_KEY=your_serpapi_key_here
@@ -118,9 +127,16 @@ python check_system.py
 
 ## Running Mark-X
 
+### Full Cyber-HUD Mode:
 ```bash
 python MarkX\main.py
 ```
+
+### Minimal Workspace Command Bar Mode:
+```bash
+python MarkX\main.py --minimal
+```
+*(You can switch between modes at any time using `Ctrl + W` or the UI switch buttons).*
 
 ## Running Tests
 
